@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "AI Carbon Footprint Tracker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Track energy and water usage from your ChatGPT conversations",
   "permissions": [
     "storage",
     "tabs"
   ],
   "host_permissions": [
+    "https://chat.openai.com/*",
     "https://chatgpt.com/*"
   ],
   "background": {
@@ -16,11 +17,10 @@
   "content_scripts": [
     {
       "matches": [
+        "https://chat.openai.com/*",
         "https://chatgpt.com/*"
       ],
-      "js": [
-        "content.js"
-      ],
+      "js": ["content.js"],
       "run_at": "document_idle"
     }
   ],

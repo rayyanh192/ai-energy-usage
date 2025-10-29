@@ -99,7 +99,7 @@ function displayModelBreakdown(modelBreakdown) {
 // Load and display data
 async function loadData() {
   try {
-    const result = await chrome.storage.local.get(['totalUsage', 'sessionUsage']);
+    const result = await chrome.storage.local.get(['totalUsage', 'sessionUsage', 'toastEnabled']);
     
     const total = result.totalUsage || {
       totalTokens: 0,
@@ -117,6 +117,10 @@ async function loadData() {
       startTime: Date.now(),
       modelBreakdown: {}
     };
+    
+    // Load toast setting (default to true)
+    const toastEnabled = result.toastEnabled !== undefined ? result.toastEnabled : true;
+    document.getElementById('toast-notifications').checked = toastEnabled;
     
     displayUsage(total, session);
   } catch (error) {
@@ -183,6 +187,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Set up button listeners
   document.getElementById('reset-session').addEventListener('click', resetSession);
   document.getElementById('reset-all').addEventListener('click', resetAll);
+  
+  // Set up toast notification toggle
+  document.getElementById('toast-notifications').addEventListener('change', async (e) => {
+    const enabled = e.target.checked;
+    await chrome.storage.local.set({ toastEnabled: enabled });
+    console.log('Toast notifications:', enabled ? 'enabled' : 'disabled');
+  });
   
   // Refresh data every 2 seconds while popup is open
   setInterval(loadData, 2000);

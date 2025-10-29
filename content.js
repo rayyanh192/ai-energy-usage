@@ -8,6 +8,193 @@ chrome.runtime.sendMessage({
   site: 'chatgpt'
 }).catch(err => console.log('Background message failed:', err));
 
+// Inject toast notification styles
+function injectStyles() {
+  if (document.getElementById('ai-carbon-tracker-styles')) return;
+  
+  const style = document.createElement('style');
+  style.id = 'ai-carbon-tracker-styles';
+  style.textContent = `
+    .ai-carbon-toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 16px 20px;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+      z-index: 10000;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      font-size: 14px;
+      min-width: 280px;
+      animation: ai-carbon-toast-in 0.3s ease-out;
+      cursor: pointer;
+      transition: transform 0.2s, opacity 0.3s;
+    }
+    
+    .ai-carbon-toast:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    }
+    
+    .ai-carbon-toast.hiding {
+      animation: ai-carbon-toast-out 0.3s ease-in forwards;
+    }
+    
+    @keyframes ai-carbon-toast-in {
+      from {
+        opacity: 0;
+        transform: translateX(100px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+    
+    @keyframes ai-carbon-toast-out {
+      from {
+        opacity: 1;
+        transform: translateX(0);
+      }
+      to {
+        opacity: 0;
+        transform: translateX(100px);
+      }
+    }
+    
+    .ai-carbon-toast-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      font-weight: 600;
+      font-size: 15px;
+    }
+    
+    .ai-carbon-toast-icon {
+      font-size: 20px;
+    }
+    
+    .ai-carbon-toast-body {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    
+    .ai-carbon-toast-stat {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      opacity: 0.95;
+    }
+    
+    .ai-carbon-toast-label {
+      font-weight: 500;
+    }
+    
+    .ai-carbon-toast-value {
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.2);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    
+    .ai-carbon-toast-footer {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.2);
+      font-size: 11px;
+      opacity: 0.8;
+      text-align: center;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// Show toast notification
+async function showToast(data) {
+  // Check if toast notifications are enabled
+  const result = await chrome.storage.local.get(['toastEnabled']);
+  const toastEnabled = result.toastEnabled !== undefined ? result.toastEnabled : true;
+  
+  if (!toastEnabled) {
+    console.log('🌍 Toast notifications disabled');
+    return;
+  }
+  
+  // Inject styles if not already present
+  injectStyles();
+  
+  // Remove any existing toast
+  const existingToast = document.querySelector('.ai-carbon-toast');
+  if (existingToast) {
+    existingToast.remove();
+  }
+  
+  // Create toast element
+  const toast = document.createElement('div');
+  toast.className = 'ai-carbon-toast';
+  
+  // Format the values for display
+  const energyWh = data.energyWh.toFixed(3);
+  const waterMl = (data.waterLiters * 1000).toFixed(2);
+  const tokens = data.totalTokens.toLocaleString();
+  const cups = (data.waterLiters / 0.237).toFixed(3);
+  
+  toast.innerHTML = `
+    <div class="ai-carbon-toast-header">
+      <span class="ai-carbon-toast-icon">🌍</span>
+      <span>AI Usage Tracked</span>
+    </div>
+    <div class="ai-carbon-toast-body">
+      <div class="ai-carbon-toast-stat">
+        <span class="ai-carbon-toast-label">⚡ Energy</span>
+        <span class="ai-carbon-toast-value">${energyWh} Wh</span>
+      </div>
+      <div class="ai-carbon-toast-stat">
+        <span class="ai-carbon-toast-label">💧 Water</span>
+        <span class="ai-carbon-toast-value">${waterMl} mL</span>
+      </div>
+      <div class="ai-carbon-toast-stat">
+        <span class="ai-carbon-toast-label">🔤 Tokens</span>
+        <span class="ai-carbon-toast-value">${tokens}</span>
+      </div>
+    </div>
+    <div class="ai-carbon-toast-footer">
+      Model: ${data.model} • Click to dismiss
+    </div>
+  `;
+  
+  // Add to page
+  document.body.appendChild(toast);
+  
+  // Auto-dismiss after 3 seconds
+  const dismissTimeout = setTimeout(() => {
+    hideToast(toast);
+  }, 3000);
+  
+  // Click to dismiss immediately
+  toast.addEventListener('click', () => {
+    clearTimeout(dismissTimeout);
+    hideToast(toast);
+  });
+}
+
+// Hide toast with animation
+function hideToast(toast) {
+  if (!toast || !toast.parentNode) return;
+  
+  toast.classList.add('hiding');
+  setTimeout(() => {
+    if (toast.parentNode) {
+      toast.remove();
+    }
+  }, 300);
+}
+
 // Store the last user message tokens for correlation
 let lastUserTokens = 0;
 
@@ -114,6 +301,14 @@ function processCompleteResponse(messageElement) {
       }
     }).then(() => {
       console.log('🌍 ✓ Usage data sent to background!');
+      
+      // Show toast notification
+      showToast({
+        energyWh: energyWh,
+        waterLiters: waterLiters,
+        totalTokens: totalTokens,
+        model: model
+      });
     }).catch(err => {
       console.error('🌍 ✗ Failed to send to background:', err);
     });
