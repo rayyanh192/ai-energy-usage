@@ -1,11 +1,12 @@
 // Content script for ChatGPT tracking
-console.log('AI Carbon Tracker: Monitoring ChatGPT');
+console.log('🌍 AI Carbon Tracker: Extension loaded!');
+console.log('🌍 Current URL:', window.location.href);
 
 // Notify background that we're active
 chrome.runtime.sendMessage({
   type: 'PAGE_LOADED',
   site: 'chatgpt'
-});
+}).catch(err => console.log('Background message failed:', err));
 
 // Store the last user message tokens for correlation
 let lastUserTokens = 0;
@@ -74,17 +75,29 @@ function processCompleteResponse(messageElement) {
   try {
     const responseText = messageElement.innerText || messageElement.textContent;
     if (!responseText || responseText.trim().length === 0) {
+      console.log('🌍 Response empty, skipping');
       return;
     }
+
+    console.log('🌍 Processing complete response...');
+    console.log('🌍 Response length:', responseText.length, 'characters');
 
     const responseTokens = estimateTokens(responseText);
     const totalTokens = lastUserTokens + responseTokens;
     
+    console.log('🌍 User tokens:', lastUserTokens);
+    console.log('🌍 Response tokens:', responseTokens);
+    console.log('🌍 Total tokens:', totalTokens);
+    
     // Detect model
     const model = detectChatGPTModel();
+    console.log('🌍 Detected model:', model);
     
     // Calculate usage
     const { energyWh, waterLiters } = calculateUsage(totalTokens, model);
+    
+    console.log('🌍 Energy:', energyWh.toFixed(4), 'Wh');
+    console.log('🌍 Water:', waterLiters.toFixed(6), 'L');
     
     // Send to background for aggregation
     chrome.runtime.sendMessage({
@@ -99,14 +112,18 @@ function processCompleteResponse(messageElement) {
         waterLiters: waterLiters,
         timestamp: Date.now()
       }
+    }).then(() => {
+      console.log('🌍 ✓ Usage data sent to background!');
+    }).catch(err => {
+      console.error('🌍 ✗ Failed to send to background:', err);
     });
     
-    console.log(`✓ Tracked: ${totalTokens} tokens (${model}), ${energyWh.toFixed(4)} Wh, ${waterLiters.toFixed(4)} L`);
+    console.log(`🌍 ✓ Tracked: ${totalTokens} tokens (${model}), ${energyWh.toFixed(4)} Wh, ${waterLiters.toFixed(4)} L`);
     
     // Reset user tokens
     lastUserTokens = 0;
   } catch (error) {
-    console.error('Error processing response:', error);
+    console.error('🌍 Error processing response:', error);
   }
 }
 
@@ -138,39 +155,68 @@ function trackUserMessage(messageElement) {
     const text = messageElement.innerText || messageElement.textContent;
     if (text && text.trim().length > 0) {
       lastUserTokens = estimateTokens(text);
-      console.log(`User message: ${lastUserTokens} tokens`);
+      console.log('🌍 User message tracked:', lastUserTokens, 'tokens');
+      console.log('🌍 Message preview:', text.substring(0, 50) + '...');
     }
   } catch (error) {
-    console.error('Error tracking user message:', error);
+    console.error('🌍 Error tracking user message:', error);
   }
 }
 
 // Main observer for chat messages
 function observeChat() {
+  console.log('🌍 Setting up chat observer...');
+  
+  // Debug: Log what we can find in the DOM
+  console.log('🌍 DOM inspection:');
+  console.log('  - Has <main>:', !!document.querySelector('main'));
+  console.log('  - Has [role="main"]:', !!document.querySelector('[role="main"]'));
+  console.log('  - Has [data-message-author-role]:', !!document.querySelector('[data-message-author-role]'));
+  
+  // Try to find any messages already on the page
+  const existingMessages = document.querySelectorAll('[data-message-author-role]');
+  console.log('  - Existing messages found:', existingMessages.length);
+  
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       mutation.addedNodes.forEach((node) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
-          // Check for user messages
+          
+          // METHOD 1: Check for data-message-author-role attribute
           const userMessage = node.querySelector('[data-message-author-role="user"]');
           if (userMessage) {
+            console.log('🌍 Detected user message (method 1)');
             trackUserMessage(userMessage);
           }
           
-          // Check if this node IS a user message
           if (node.getAttribute && node.getAttribute('data-message-author-role') === 'user') {
+            console.log('🌍 Detected user message (method 2)');
             trackUserMessage(node);
           }
           
-          // Check for assistant messages
           const assistantMessage = node.querySelector('[data-message-author-role="assistant"]');
           if (assistantMessage) {
+            console.log('🌍 Detected assistant message (method 1)');
             waitForCompleteResponse(assistantMessage);
           }
           
-          // Check if this node IS an assistant message
           if (node.getAttribute && node.getAttribute('data-message-author-role') === 'assistant') {
+            console.log('🌍 Detected assistant message (method 2)');
             waitForCompleteResponse(node);
+          }
+          
+          // METHOD 2: Alternative class-based detection (fallback)
+          // ChatGPT sometimes uses different structures
+          if (node.className && typeof node.className === 'string') {
+            // Look for user/assistant message patterns
+            if (node.className.includes('group') && node.innerText) {
+              const text = node.innerText.trim();
+              if (text.length > 10) {
+                console.log('🌍 Detected message via class (fallback method)');
+                // Try to determine if it's user or assistant
+                // This is a fallback and less reliable
+              }
+            }
           }
         }
       });
@@ -178,26 +224,40 @@ function observeChat() {
   });
 
   // Find the main chat container
-  const chatContainer = document.querySelector('main') || document.querySelector('[role="main"]') || document.body;
+  const chatContainer = document.querySelector('main') || 
+                        document.querySelector('[role="main"]') || 
+                        document.querySelector('.flex.flex-col') ||
+                        document.body;
   
   if (chatContainer) {
     observer.observe(chatContainer, {
       childList: true,
       subtree: true
     });
-    console.log('Chat observer initialized');
+    console.log('🌍 Chat observer initialized successfully!');
+    console.log('🌍 Monitoring container:', chatContainer.tagName);
   } else {
-    console.warn('Could not find chat container, retrying...');
+    console.warn('🌍 Could not find chat container, retrying...');
     setTimeout(observeChat, 1000);
   }
 }
 
 // Initialize when page is ready
+console.log('🌍 Document state:', document.readyState);
+
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', observeChat);
+  console.log('🌍 Waiting for DOMContentLoaded...');
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log('🌍 DOMContentLoaded fired');
+    observeChat();
+  });
 } else {
+  console.log('🌍 DOM already ready, initializing...');
   observeChat();
 }
 
 // Also try to initialize after a short delay (in case DOM isn't ready)
-setTimeout(observeChat, 2000);
+setTimeout(() => {
+  console.log('🌍 Delayed initialization attempt...');
+  observeChat();
+}, 2000);
