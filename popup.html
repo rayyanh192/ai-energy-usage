@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Carbon Footprint</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🌍 AI Carbon Tracker</h1>
+      <p class="subtitle">Your ChatGPT environmental impact</p>
+    </header>
+
+    <section class="stats-section">
+      <h2>This Session</h2>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="session-conversations">0</div>
+          <div class="stat-label">Conversations</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="session-energy">0</div>
+          <div class="stat-label">Wh</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="session-water">0</div>
+          <div class="stat-label">Liters Water</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="stats-section">
+      <h2>All Time Total</h2>
+      
+      <div class="metric-group">
+        <h3>💧 Water Usage</h3>
+        <div class="metric">
+          <span class="metric-icon">☕</span>
+          <span class="metric-value" id="total-water-cups">0</span>
+          <span class="metric-unit">cups</span>
+        </div>
+        <div class="metric">
+          <span class="metric-icon">🍼</span>
+          <span class="metric-value" id="total-water-bottles">0</span>
+          <span class="metric-unit">water bottles</span>
+        </div>
+        <div class="metric">
+          <span class="metric-icon">🛁</span>
+          <span class="metric-value" id="total-water-bathtubs">0</span>
+          <span class="metric-unit">bathtubs</span>
+        </div>
+        <div class="metric">
+          <span class="metric-icon">🏊</span>
+          <span class="metric-value" id="total-water-pools">0</span>
+          <span class="metric-unit">swimming pools</span>
+        </div>
+      </div>
+
+      <div class="metric-group">
+        <h3>⚡ Energy Usage</h3>
+        <div class="metric">
+          <span class="metric-icon">🔋</span>
+          <span class="metric-value" id="total-energy-kwh">0</span>
+          <span class="metric-unit">kWh</span>
+        </div>
+        <div class="metric">
+          <span class="metric-icon">📱</span>
+          <span class="metric-value" id="total-phone-charges">0</span>
+          <span class="metric-unit">phone charges</span>
+        </div>
+        <div class="metric">
+          <span class="metric-icon">💡</span>
+          <span class="metric-value" id="total-bulb-hours">0</span>
+          <span class="metric-unit">bulb hours (10W)</span>
+        </div>
+      </div>
+
+      <div class="total-conversations">
+        <strong id="total-conversations-count">0</strong> total conversations tracked
+      </div>
+    </section>
+
+    <section class="model-breakdown" id="model-breakdown-section" style="display: none;">
+      <h2>Model Breakdown</h2>
+      <div id="model-breakdown-content"></div>
+    </section>
+
+    <footer>
+      <button id="reset-session" class="btn btn-secondary">Reset Session</button>
+      <button id="reset-all" class="btn btn-danger">Reset All Data</button>
+      <div class="disclaimer">
+        <small>* Estimates based on published research. Actual usage may vary.</small>
+      </div>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
