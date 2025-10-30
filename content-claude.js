@@ -11,6 +11,13 @@ chrome.runtime.sendMessage({
 // Store the last user message tokens for correlation
 let lastUserTokens = 0;
 
+// Store the current observer so we can disconnect it on navigation
+let currentObserver = null;
+let lastUrl = window.location.href;
+
+// Track processed messages globally (moved from inside observeChat)
+const processedMessages = new Set();
+
 // Model energy rates (Wh per 1000 tokens)
 // Based on similar architecture to GPT models, adjusted for Claude's efficiency
 const ENERGY_RATES = {
@@ -348,10 +355,20 @@ function trackUserMessage(messageElement) {
 
 function observeChat() {
   console.log('🌍 Setting up Claude chat observer...');
-  
-  // Track already processed messages to avoid duplicates
-  const processedMessages = new Set();
-  
+
+  // Disconnect old observer if exists
+  if (currentObserver) {
+    console.log('🌍 Disconnecting old observer...');
+    currentObserver.disconnect();
+    currentObserver = null;
+  }
+
+  // Reset tracking state for new conversation
+  processedMessages.clear();
+  lastUserTokens = 0;
+  window.lastUserMessageTime = 0;
+  console.log('🌍 Reset tracking state for new conversation');
+
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       mutation.addedNodes.forEach((node) => {
@@ -413,15 +430,16 @@ function observeChat() {
     });
   });
 
-  const chatContainer = document.querySelector('main') || 
-                        document.querySelector('[role="main"]') || 
+  const chatContainer = document.querySelector('main') ||
+                        document.querySelector('[role="main"]') ||
                         document.body;
-  
+
   if (chatContainer) {
     observer.observe(chatContainer, {
       childList: true,
       subtree: true
     });
+    currentObserver = observer; // Store the observer for later cleanup
     console.log('🌍 Claude chat observer initialized successfully!');
     console.log('🌍 Monitoring container:', chatContainer.tagName);
   } else {
@@ -430,35 +448,73 @@ function observeChat() {
   }
 }
 
+// Monitor URL changes to detect new conversations
+function monitorUrlChanges() {
+  // Check for URL changes every 500ms
+  setInterval(() => {
+    const currentUrl = window.location.href;
+
+    if (currentUrl !== lastUrl) {
+      console.log('🌍 URL changed from:', lastUrl);
+      console.log('🌍 URL changed to:', currentUrl);
+      lastUrl = currentUrl;
+
+      // Reinitialize observer for new conversation
+      console.log('🌍 Reinitializing observer for new conversation...');
+      setTimeout(observeChat, 500); // Small delay to let DOM update
+    }
+  }, 500);
+}
+
+// Listen for navigation events (SPA navigation)
+if (window.navigation) {
+  window.navigation.addEventListener('navigate', (event) => {
+    console.log('🌍 Navigation event detected:', event.destination.url);
+    setTimeout(observeChat, 500);
+  });
+}
+
 // Initialize
 console.log('🌍 Document state:', document.readyState);
 
-// Flag to ensure we only initialize once
-let initialized = false;
+// Flag to ensure we only initialize observer once initially
+let observerInitialized = false;
+let urlMonitorInitialized = false;
 
-function initializeOnce() {
-  if (initialized) {
-    console.log('🌍 Already initialized, skipping');
+function initializeObserver() {
+  if (observerInitialized) {
+    console.log('🌍 Observer already initialized, skipping initial setup');
     return;
   }
-  initialized = true;
+  observerInitialized = true;
   console.log('🌍 Initializing Claude tracker...');
   observeChat();
+}
+
+function initializeUrlMonitor() {
+  if (urlMonitorInitialized) {
+    console.log('🌍 URL monitor already initialized, skipping');
+    return;
+  }
+  urlMonitorInitialized = true;
+  monitorUrlChanges();
 }
 
 if (document.readyState === 'loading') {
   console.log('🌍 Waiting for DOMContentLoaded...');
   document.addEventListener('DOMContentLoaded', () => {
     console.log('🌍 DOMContentLoaded fired');
-    initializeOnce();
+    initializeObserver();
+    initializeUrlMonitor(); // Start monitoring URL changes
   });
 } else {
   console.log('🌍 DOM already ready, initializing...');
-  initializeOnce();
+  initializeObserver();
+  initializeUrlMonitor(); // Start monitoring URL changes
 }
 
 // Backup initialization after delay
 setTimeout(() => {
   console.log('🌍 Delayed initialization check...');
-  initializeOnce();
+  initializeObserver();
 }, 2000);
