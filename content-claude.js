@@ -18,6 +18,10 @@ let lastUrl = window.location.href;
 // Track processed messages globally (moved from inside observeChat)
 const processedMessages = new Set();
 
+// Track processed conversations to avoid duplicates on refresh
+let lastProcessedConversationText = '';
+let isInitialLoad = true;
+
 // Model energy rates (Wh per 1000 tokens)
 // Based on similar architecture to GPT models, adjusted for Claude's efficiency
 const ENERGY_RATES = {
@@ -258,24 +262,38 @@ function processCompleteResponse(messageElement) {
       return;
     }
 
+    // Skip if we don't have a user message (prevents tracking on page refresh)
+    if (lastUserTokens === 0) {
+      console.log('🌍 No user message to pair with, skipping (likely page refresh)');
+      return;
+    }
+
+    // Prevent duplicate processing of the same response
+    const responseSignature = responseText.substring(0, 100) + responseText.length;
+    if (lastProcessedConversationText === responseSignature) {
+      console.log('🌍 Response already processed, skipping duplicate');
+      return;
+    }
+    lastProcessedConversationText = responseSignature;
+
     console.log('🌍 Processing complete Claude response...');
     console.log('🌍 Response length:', responseText.length, 'characters');
 
     const responseTokens = estimateTokens(responseText);
     const totalTokens = lastUserTokens + responseTokens;
-    
+
     console.log('🌍 User tokens:', lastUserTokens);
     console.log('🌍 Response tokens:', responseTokens);
     console.log('🌍 Total tokens:', totalTokens);
-    
+
     const model = detectClaudeModel();
     console.log('🌍 Detected model:', model);
-    
+
     const { energyWh, waterLiters } = calculateUsage(totalTokens, model);
-    
+
     console.log('🌍 Energy:', energyWh.toFixed(4), 'Wh');
     console.log('🌍 Water:', waterLiters.toFixed(6), 'L');
-    
+
     chrome.runtime.sendMessage({
       type: 'USAGE_RECORDED',
       data: {
@@ -290,7 +308,7 @@ function processCompleteResponse(messageElement) {
       }
     }).then(() => {
       console.log('🌍 ✓ Usage data sent to background!');
-      
+
       showToast({
         energyWh: energyWh,
         waterLiters: waterLiters,
@@ -300,9 +318,9 @@ function processCompleteResponse(messageElement) {
     }).catch(err => {
       console.error('🌍 ✗ Failed to send to background:', err);
     });
-    
+
     console.log(`🌍 ✓ Tracked: ${totalTokens} tokens (${model}), ${energyWh.toFixed(4)} Wh, ${waterLiters.toFixed(4)} L`);
-    
+
     lastUserTokens = 0;
   } catch (error) {
     console.error('🌍 Error processing response:', error);
@@ -310,19 +328,36 @@ function processCompleteResponse(messageElement) {
 }
 
 function isResponseComplete() {
-  // Claude shows "Stop generating" or similar while streaming
-  // Check for stop button by aria-label or text content
-  const stopButton = document.querySelector('button[aria-label*="Stop"]');
-  if (stopButton) return false;
-  
-  // Also check for any button with "Stop" text
+  // Claude shows "Stop generating" button while streaming
+  // Check for stop button by multiple methods
+
+  // Method 1: Check for stop button by aria-label
+  const stopButtonByAriaLabel = document.querySelector('button[aria-label*="Stop"]');
+  if (stopButtonByAriaLabel && stopButtonByAriaLabel.offsetParent !== null) {
+    console.log('🌍 Stop button found (aria-label), response still generating');
+    return false;
+  }
+
+  // Method 2: Check for any visible button with "Stop" text
   const buttons = document.querySelectorAll('button');
   for (const button of buttons) {
-    if (button.textContent.toLowerCase().includes('stop')) {
+    const buttonText = button.textContent.toLowerCase();
+    if ((buttonText.includes('stop') || buttonText.includes('generating')) &&
+        button.offsetParent !== null) {
+      console.log('🌍 Stop button found (text content), response still generating');
       return false;
     }
   }
-  
+
+  // Method 3: Check for typing indicator or loading states
+  const typingIndicators = document.querySelectorAll('[class*="typing"], [class*="loading"], [class*="generating"]');
+  for (const indicator of typingIndicators) {
+    if (indicator.offsetParent !== null) {
+      console.log('🌍 Typing indicator found, response still generating');
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -366,62 +401,97 @@ function observeChat() {
   // Reset tracking state for new conversation
   processedMessages.clear();
   lastUserTokens = 0;
+  lastProcessedConversationText = '';
   window.lastUserMessageTime = 0;
   console.log('🌍 Reset tracking state for new conversation');
+
+  // Mark existing messages on initial load to prevent duplicates on refresh
+  if (isInitialLoad) {
+    console.log('🌍 Initial load - marking existing messages as processed');
+    const existingMessages = document.querySelectorAll('[data-test-render-count]');
+    existingMessages.forEach((msg) => {
+      const messageId = msg.getAttribute('data-test-render-count');
+      if (messageId) {
+        processedMessages.add(messageId);
+        console.log('🌍 Marked existing message as processed:', messageId);
+      }
+    });
+    isInitialLoad = false;
+  }
+
+  let lastResponseElement = null;
+  let responseCheckInterval = null;
 
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       mutation.addedNodes.forEach((node) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
-          
-          // Method 1: Claude messages with data-test-render-count
+
+          // Method 1: Look for Claude's message structure using data-test-render-count
+          let messageElement = null;
           if (node.hasAttribute && node.hasAttribute('data-test-render-count')) {
-            const messageId = node.getAttribute('data-test-render-count');
-            
+            messageElement = node;
+          } else if (node.querySelector) {
+            messageElement = node.querySelector('[data-test-render-count]');
+          }
+
+          if (messageElement) {
+            const messageId = messageElement.getAttribute('data-test-render-count');
+            const content = messageElement.textContent || '';
+
+            // Skip if already processed
             if (processedMessages.has(messageId)) {
               return;
             }
-            
-            const content = node.textContent;
-            
-            // Only process substantial content
-            if (content && content.trim().length > 30) {
-              processedMessages.add(messageId);
-              
-              console.log('🌍 New message detected (render-count), length:', content.length);
-              console.log('🌍 Preview:', content.substring(0, 100) + '...');
-              
-              // Determine if this is user or assistant
-              const timeSinceLastUser = Date.now() - (window.lastUserMessageTime || 0);
-              
-              if (lastUserTokens === 0 || timeSinceLastUser > 5000) {
-                console.log('🌍 Treating as user message');
-                trackUserMessage(node);
-                window.lastUserMessageTime = Date.now();
-              } else {
-                console.log('🌍 Treating as assistant message');
-                waitForCompleteResponse(node);
+
+            // Only process substantial content (skip empty or tiny messages)
+            if (content.trim().length < 20) {
+              return;
+            }
+
+            processedMessages.add(messageId);
+            console.log('🌍 New message detected, ID:', messageId, 'Length:', content.length);
+
+            // Determine if this is user or assistant message
+            // Claude typically has user messages followed by assistant responses
+            const timeSinceLastUser = Date.now() - (window.lastUserMessageTime || 0);
+
+            // If we don't have a user message yet, or it's been a while, this is likely user
+            if (lastUserTokens === 0 || timeSinceLastUser > 5000) {
+              console.log('🌍 Detected as USER message');
+              trackUserMessage(messageElement);
+              window.lastUserMessageTime = Date.now();
+            } else {
+              // This is an assistant response
+              console.log('🌍 Detected as ASSISTANT message');
+
+              // Store the element for continuous checking
+              lastResponseElement = messageElement;
+
+              // Clear any existing check interval
+              if (responseCheckInterval) {
+                clearInterval(responseCheckInterval);
               }
+
+              // Start checking for completion
+              waitForCompleteResponse(messageElement);
             }
           }
-          
-          // Method 2: Look for specific Claude response containers
-          // Claude often wraps responses in divs with specific classes
-          const possibleMessage = node.querySelector('[class*="font-"]') || node;
-          if (possibleMessage && possibleMessage.textContent && possibleMessage.textContent.length > 100) {
-            const messageKey = possibleMessage.textContent.substring(0, 50);
-            
-            if (!processedMessages.has(messageKey)) {
-              processedMessages.add(messageKey);
-              
-              console.log('🌍 Possible assistant message detected (fallback)');
-              console.log('🌍 Length:', possibleMessage.textContent.length);
-              
-              // If we have a recent user message, this is likely the response
-              const timeSinceLastUser = Date.now() - (window.lastUserMessageTime || 0);
-              if (timeSinceLastUser < 10000 && lastUserTokens > 0) {
-                console.log('🌍 Treating as assistant response (fallback method)');
-                waitForCompleteResponse(possibleMessage);
+
+          // Method 2: Fallback - look for any substantial text additions
+          // This catches cases where the main method might miss something
+          if (node.textContent && node.textContent.length > 100) {
+            const nodeText = node.textContent.trim();
+            const nodeSignature = nodeText.substring(0, 50) + nodeText.length;
+
+            // If we have a recent user message and this looks like a response
+            const timeSinceLastUser = Date.now() - (window.lastUserMessageTime || 0);
+            if (timeSinceLastUser < 10000 && timeSinceLastUser > 100 && lastUserTokens > 0) {
+              if (!processedMessages.has(nodeSignature)) {
+                processedMessages.add(nodeSignature);
+                console.log('🌍 Detected message via fallback method, length:', nodeText.length);
+                lastResponseElement = node;
+                waitForCompleteResponse(node);
               }
             }
           }
@@ -437,9 +507,10 @@ function observeChat() {
   if (chatContainer) {
     observer.observe(chatContainer, {
       childList: true,
-      subtree: true
+      subtree: true,
+      characterData: true
     });
-    currentObserver = observer; // Store the observer for later cleanup
+    currentObserver = observer;
     console.log('🌍 Claude chat observer initialized successfully!');
     console.log('🌍 Monitoring container:', chatContainer.tagName);
   } else {
@@ -459,6 +530,9 @@ function monitorUrlChanges() {
       console.log('🌍 URL changed to:', currentUrl);
       lastUrl = currentUrl;
 
+      // Reset isInitialLoad for new conversation to prevent tracking existing messages
+      isInitialLoad = true;
+
       // Reinitialize observer for new conversation
       console.log('🌍 Reinitializing observer for new conversation...');
       setTimeout(observeChat, 500); // Small delay to let DOM update
@@ -470,6 +544,7 @@ function monitorUrlChanges() {
 if (window.navigation) {
   window.navigation.addEventListener('navigate', (event) => {
     console.log('🌍 Navigation event detected:', event.destination.url);
+    isInitialLoad = true; // Reset to mark existing messages on new page
     setTimeout(observeChat, 500);
   });
 }

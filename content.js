@@ -202,6 +202,11 @@ let lastUserTokens = 0;
 let currentObserver = null;
 let lastUrl = window.location.href;
 
+// Track processed conversations to avoid duplicates on refresh
+let lastProcessedConversationText = '';
+let isInitialLoad = true;
+const processedMessages = new Set();
+
 // Model energy rates (Wh per 1000 tokens)
 const ENERGY_RATES = {
   'gpt-3.5-turbo': 0.5,
@@ -270,26 +275,40 @@ function processCompleteResponse(messageElement) {
       return;
     }
 
+    // Skip if we don't have a user message (prevents tracking on page refresh)
+    if (lastUserTokens === 0) {
+      console.log('🌍 No user message to pair with, skipping (likely page refresh)');
+      return;
+    }
+
+    // Prevent duplicate processing of the same response
+    const responseSignature = responseText.substring(0, 100) + responseText.length;
+    if (lastProcessedConversationText === responseSignature) {
+      console.log('🌍 Response already processed, skipping duplicate');
+      return;
+    }
+    lastProcessedConversationText = responseSignature;
+
     console.log('🌍 Processing complete response...');
     console.log('🌍 Response length:', responseText.length, 'characters');
 
     const responseTokens = estimateTokens(responseText);
     const totalTokens = lastUserTokens + responseTokens;
-    
+
     console.log('🌍 User tokens:', lastUserTokens);
     console.log('🌍 Response tokens:', responseTokens);
     console.log('🌍 Total tokens:', totalTokens);
-    
+
     // Detect model
     const model = detectChatGPTModel();
     console.log('🌍 Detected model:', model);
-    
+
     // Calculate usage
     const { energyWh, waterLiters } = calculateUsage(totalTokens, model);
-    
+
     console.log('🌍 Energy:', energyWh.toFixed(4), 'Wh');
     console.log('🌍 Water:', waterLiters.toFixed(6), 'L');
-    
+
     // Send to background for aggregation
     chrome.runtime.sendMessage({
       type: 'USAGE_RECORDED',
@@ -305,7 +324,7 @@ function processCompleteResponse(messageElement) {
       }
     }).then(() => {
       console.log('🌍 ✓ Usage data sent to background!');
-      
+
       // Show toast notification
       showToast({
         energyWh: energyWh,
@@ -316,9 +335,9 @@ function processCompleteResponse(messageElement) {
     }).catch(err => {
       console.error('🌍 ✗ Failed to send to background:', err);
     });
-    
+
     console.log(`🌍 ✓ Tracked: ${totalTokens} tokens (${model}), ${energyWh.toFixed(4)} Wh, ${waterLiters.toFixed(4)} L`);
-    
+
     // Reset user tokens
     lastUserTokens = 0;
   } catch (error) {
@@ -374,8 +393,25 @@ function observeChat() {
   }
 
   // Reset tracking state for new conversation
+  processedMessages.clear();
   lastUserTokens = 0;
+  lastProcessedConversationText = '';
   console.log('🌍 Reset tracking state for new conversation');
+
+  // Mark existing messages on initial load to prevent duplicates on refresh
+  if (isInitialLoad) {
+    console.log('🌍 Initial load - marking existing messages as processed');
+    const existingMessages = document.querySelectorAll('[data-message-author-role]');
+    existingMessages.forEach((msg) => {
+      const messageText = msg.textContent || '';
+      if (messageText.length > 20) {
+        const messageSignature = messageText.substring(0, 50);
+        processedMessages.add(messageSignature);
+        console.log('🌍 Marked existing message as processed');
+      }
+    });
+    isInitialLoad = false;
+  }
 
   // Debug: Log what we can find in the DOM
   console.log('🌍 DOM inspection:');
@@ -391,30 +427,50 @@ function observeChat() {
     mutations.forEach((mutation) => {
       mutation.addedNodes.forEach((node) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
-          
+
           // METHOD 1: Check for data-message-author-role attribute
           const userMessage = node.querySelector('[data-message-author-role="user"]');
           if (userMessage) {
-            console.log('🌍 Detected user message (method 1)');
-            trackUserMessage(userMessage);
+            const messageText = userMessage.textContent || '';
+            const messageSignature = messageText.substring(0, 50);
+            if (!processedMessages.has(messageSignature) && messageText.length > 10) {
+              processedMessages.add(messageSignature);
+              console.log('🌍 Detected user message (method 1)');
+              trackUserMessage(userMessage);
+            }
           }
-          
+
           if (node.getAttribute && node.getAttribute('data-message-author-role') === 'user') {
-            console.log('🌍 Detected user message (method 2)');
-            trackUserMessage(node);
+            const messageText = node.textContent || '';
+            const messageSignature = messageText.substring(0, 50);
+            if (!processedMessages.has(messageSignature) && messageText.length > 10) {
+              processedMessages.add(messageSignature);
+              console.log('🌍 Detected user message (method 2)');
+              trackUserMessage(node);
+            }
           }
-          
+
           const assistantMessage = node.querySelector('[data-message-author-role="assistant"]');
           if (assistantMessage) {
-            console.log('🌍 Detected assistant message (method 1)');
-            waitForCompleteResponse(assistantMessage);
+            const messageText = assistantMessage.textContent || '';
+            const messageSignature = messageText.substring(0, 50);
+            if (!processedMessages.has(messageSignature) && messageText.length > 10) {
+              processedMessages.add(messageSignature);
+              console.log('🌍 Detected assistant message (method 1)');
+              waitForCompleteResponse(assistantMessage);
+            }
           }
-          
+
           if (node.getAttribute && node.getAttribute('data-message-author-role') === 'assistant') {
-            console.log('🌍 Detected assistant message (method 2)');
-            waitForCompleteResponse(node);
+            const messageText = node.textContent || '';
+            const messageSignature = messageText.substring(0, 50);
+            if (!processedMessages.has(messageSignature) && messageText.length > 10) {
+              processedMessages.add(messageSignature);
+              console.log('🌍 Detected assistant message (method 2)');
+              waitForCompleteResponse(node);
+            }
           }
-          
+
           // METHOD 2: Alternative class-based detection (fallback)
           // ChatGPT sometimes uses different structures
           if (node.className && typeof node.className === 'string') {
@@ -464,6 +520,9 @@ function monitorUrlChanges() {
       console.log('🌍 URL changed to:', currentUrl);
       lastUrl = currentUrl;
 
+      // Reset isInitialLoad for new conversation to prevent tracking existing messages
+      isInitialLoad = true;
+
       // Reinitialize observer for new conversation
       console.log('🌍 Reinitializing observer for new conversation...');
       setTimeout(observeChat, 500); // Small delay to let DOM update
@@ -475,6 +534,7 @@ function monitorUrlChanges() {
 if (window.navigation) {
   window.navigation.addEventListener('navigate', (event) => {
     console.log('🌍 Navigation event detected:', event.destination.url);
+    isInitialLoad = true; // Reset to mark existing messages on new page
     setTimeout(observeChat, 500);
   });
 }
