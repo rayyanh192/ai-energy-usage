@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Carbon Footprint Tracker",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Track energy and water usage from your ChatGPT and Claude conversations",
   "permissions": [
     "storage",

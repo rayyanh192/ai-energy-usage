@@ -304,9 +304,19 @@ function processCompleteResponse(messageElement) {
 
 function isResponseComplete() {
   // Claude shows "Stop generating" or similar while streaming
-  const stopButton = document.querySelector('button[aria-label*="Stop"]') || 
-                     document.querySelector('button:has-text("Stop")');
-  return !stopButton;
+  // Check for stop button by aria-label or text content
+  const stopButton = document.querySelector('button[aria-label*="Stop"]');
+  if (stopButton) return false;
+  
+  // Also check for any button with "Stop" text
+  const buttons = document.querySelectorAll('button');
+  for (const button of buttons) {
+    if (button.textContent.toLowerCase().includes('stop')) {
+      return false;
+    }
+  }
+  
+  return true;
 }
 
 function waitForCompleteResponse(messageElement) {
@@ -339,39 +349,64 @@ function trackUserMessage(messageElement) {
 function observeChat() {
   console.log('🌍 Setting up Claude chat observer...');
   
+  // Track already processed messages to avoid duplicates
+  const processedMessages = new Set();
+  
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       mutation.addedNodes.forEach((node) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
           
-          // Claude uses different attributes - look for message containers
-          // Check for the specific render count attribute Claude uses
+          // Method 1: Claude messages with data-test-render-count
           if (node.hasAttribute && node.hasAttribute('data-test-render-count')) {
+            const messageId = node.getAttribute('data-test-render-count');
+            
+            if (processedMessages.has(messageId)) {
+              return;
+            }
+            
             const content = node.textContent;
-            if (content && content.length > 20) {
-              console.log('🌍 Detected new message in Claude');
+            
+            // Only process substantial content
+            if (content && content.trim().length > 30) {
+              processedMessages.add(messageId);
               
-              // Determine if user or assistant based on position/context
-              // This is a simplified detection - may need refinement
-              setTimeout(() => {
-                // Give it a moment to determine context
-                const isLikelyAssistant = content.length > 100; // Assistant responses tend to be longer
-                
-                if (isLikelyAssistant) {
-                  console.log('🌍 Likely assistant message');
-                  waitForCompleteResponse(node);
-                } else {
-                  console.log('🌍 Likely user message');
-                  trackUserMessage(node);
-                }
-              }, 100);
+              console.log('🌍 New message detected (render-count), length:', content.length);
+              console.log('🌍 Preview:', content.substring(0, 100) + '...');
+              
+              // Determine if this is user or assistant
+              const timeSinceLastUser = Date.now() - (window.lastUserMessageTime || 0);
+              
+              if (lastUserTokens === 0 || timeSinceLastUser > 5000) {
+                console.log('🌍 Treating as user message');
+                trackUserMessage(node);
+                window.lastUserMessageTime = Date.now();
+              } else {
+                console.log('🌍 Treating as assistant message');
+                waitForCompleteResponse(node);
+              }
             }
           }
           
-          // Fallback: look for any substantial text additions
-          if (node.textContent && node.textContent.length > 50) {
-            const textPreview = node.textContent.substring(0, 100);
-            console.log('🌍 Substantial content detected:', textPreview);
+          // Method 2: Look for specific Claude response containers
+          // Claude often wraps responses in divs with specific classes
+          const possibleMessage = node.querySelector('[class*="font-"]') || node;
+          if (possibleMessage && possibleMessage.textContent && possibleMessage.textContent.length > 100) {
+            const messageKey = possibleMessage.textContent.substring(0, 50);
+            
+            if (!processedMessages.has(messageKey)) {
+              processedMessages.add(messageKey);
+              
+              console.log('🌍 Possible assistant message detected (fallback)');
+              console.log('🌍 Length:', possibleMessage.textContent.length);
+              
+              // If we have a recent user message, this is likely the response
+              const timeSinceLastUser = Date.now() - (window.lastUserMessageTime || 0);
+              if (timeSinceLastUser < 10000 && lastUserTokens > 0) {
+                console.log('🌍 Treating as assistant response (fallback method)');
+                waitForCompleteResponse(possibleMessage);
+              }
+            }
           }
         }
       });
@@ -385,8 +420,7 @@ function observeChat() {
   if (chatContainer) {
     observer.observe(chatContainer, {
       childList: true,
-      subtree: true,
-      characterData: true
+      subtree: true
     });
     console.log('🌍 Claude chat observer initialized successfully!');
     console.log('🌍 Monitoring container:', chatContainer.tagName);
@@ -399,18 +433,32 @@ function observeChat() {
 // Initialize
 console.log('🌍 Document state:', document.readyState);
 
+// Flag to ensure we only initialize once
+let initialized = false;
+
+function initializeOnce() {
+  if (initialized) {
+    console.log('🌍 Already initialized, skipping');
+    return;
+  }
+  initialized = true;
+  console.log('🌍 Initializing Claude tracker...');
+  observeChat();
+}
+
 if (document.readyState === 'loading') {
   console.log('🌍 Waiting for DOMContentLoaded...');
   document.addEventListener('DOMContentLoaded', () => {
     console.log('🌍 DOMContentLoaded fired');
-    observeChat();
+    initializeOnce();
   });
 } else {
   console.log('🌍 DOM already ready, initializing...');
-  observeChat();
+  initializeOnce();
 }
 
+// Backup initialization after delay
 setTimeout(() => {
-  console.log('🌍 Delayed initialization attempt...');
-  observeChat();
+  console.log('🌍 Delayed initialization check...');
+  initializeOnce();
 }, 2000);
