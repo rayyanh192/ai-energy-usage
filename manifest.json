@@ -1,15 +1,16 @@
 {
   "manifest_version": 3,
   "name": "AI Carbon Footprint Tracker",
-  "version": "1.1.0",
-  "description": "Track energy and water usage from your ChatGPT conversations",
+  "version": "1.2.0",
+  "description": "Track energy and water usage from your ChatGPT and Claude conversations",
   "permissions": [
     "storage",
     "tabs"
   ],
   "host_permissions": [
     "https://chat.openai.com/*",
-    "https://chatgpt.com/*"
+    "https://chatgpt.com/*",
+    "https://claude.ai/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -21,6 +22,13 @@
         "https://chatgpt.com/*"
       ],
       "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://claude.ai/*"
+      ],
+      "js": ["content-claude.js"],
       "run_at": "document_idle"
     }
   ],
