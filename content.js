@@ -198,6 +198,10 @@ function hideToast(toast) {
 // Store the last user message tokens for correlation
 let lastUserTokens = 0;
 
+// Store the current observer so we can disconnect it on navigation
+let currentObserver = null;
+let lastUrl = window.location.href;
+
 // Model energy rates (Wh per 1000 tokens)
 const ENERGY_RATES = {
   'gpt-3.5-turbo': 0.5,
@@ -361,17 +365,28 @@ function trackUserMessage(messageElement) {
 // Main observer for chat messages
 function observeChat() {
   console.log('🌍 Setting up chat observer...');
-  
+
+  // Disconnect old observer if exists
+  if (currentObserver) {
+    console.log('🌍 Disconnecting old observer...');
+    currentObserver.disconnect();
+    currentObserver = null;
+  }
+
+  // Reset tracking state for new conversation
+  lastUserTokens = 0;
+  console.log('🌍 Reset tracking state for new conversation');
+
   // Debug: Log what we can find in the DOM
   console.log('🌍 DOM inspection:');
   console.log('  - Has <main>:', !!document.querySelector('main'));
   console.log('  - Has [role="main"]:', !!document.querySelector('[role="main"]'));
   console.log('  - Has [data-message-author-role]:', !!document.querySelector('[data-message-author-role]'));
-  
+
   // Try to find any messages already on the page
   const existingMessages = document.querySelectorAll('[data-message-author-role]');
   console.log('  - Existing messages found:', existingMessages.length);
-  
+
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       mutation.addedNodes.forEach((node) => {
@@ -419,22 +434,49 @@ function observeChat() {
   });
 
   // Find the main chat container
-  const chatContainer = document.querySelector('main') || 
-                        document.querySelector('[role="main"]') || 
+  const chatContainer = document.querySelector('main') ||
+                        document.querySelector('[role="main"]') ||
                         document.querySelector('.flex.flex-col') ||
                         document.body;
-  
+
   if (chatContainer) {
     observer.observe(chatContainer, {
       childList: true,
       subtree: true
     });
+    currentObserver = observer; // Store the observer for later cleanup
     console.log('🌍 Chat observer initialized successfully!');
     console.log('🌍 Monitoring container:', chatContainer.tagName);
   } else {
     console.warn('🌍 Could not find chat container, retrying...');
     setTimeout(observeChat, 1000);
   }
+}
+
+// Monitor URL changes to detect new conversations
+function monitorUrlChanges() {
+  // Check for URL changes every 500ms
+  setInterval(() => {
+    const currentUrl = window.location.href;
+
+    if (currentUrl !== lastUrl) {
+      console.log('🌍 URL changed from:', lastUrl);
+      console.log('🌍 URL changed to:', currentUrl);
+      lastUrl = currentUrl;
+
+      // Reinitialize observer for new conversation
+      console.log('🌍 Reinitializing observer for new conversation...');
+      setTimeout(observeChat, 500); // Small delay to let DOM update
+    }
+  }, 500);
+}
+
+// Listen for navigation events (SPA navigation)
+if (window.navigation) {
+  window.navigation.addEventListener('navigate', (event) => {
+    console.log('🌍 Navigation event detected:', event.destination.url);
+    setTimeout(observeChat, 500);
+  });
 }
 
 // Initialize when page is ready
@@ -445,10 +487,12 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     console.log('🌍 DOMContentLoaded fired');
     observeChat();
+    monitorUrlChanges(); // Start monitoring URL changes
   });
 } else {
   console.log('🌍 DOM already ready, initializing...');
   observeChat();
+  monitorUrlChanges(); // Start monitoring URL changes
 }
 
 // Also try to initialize after a short delay (in case DOM isn't ready)
