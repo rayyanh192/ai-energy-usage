@@ -22,6 +22,10 @@ const processedMessages = new Set();
 let lastProcessedConversationText = '';
 let isInitialLoad = true;
 
+// Warmup period to prevent tracking existing messages on page load/refresh/navigation
+let isWarmingUp = true;
+let warmupTimeout = null;
+
 // Model energy rates (Wh per 1000 tokens)
 // Based on similar architecture to GPT models, adjusted for Claude's efficiency
 const ENERGY_RATES = {
@@ -213,6 +217,23 @@ function hideToast(toast) {
   }, 300);
 }
 
+// Start warmup period to prevent tracking existing messages
+function startWarmupPeriod() {
+  isWarmingUp = true;
+  console.log('🌍 Starting warmup period - will not track messages for 3 seconds');
+
+  // Clear any existing warmup timeout
+  if (warmupTimeout) {
+    clearTimeout(warmupTimeout);
+  }
+
+  // Set warmup period for 3 seconds
+  warmupTimeout = setTimeout(() => {
+    isWarmingUp = false;
+    console.log('🌍 Warmup period complete - now tracking new messages');
+  }, 3000);
+}
+
 function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
@@ -377,6 +398,12 @@ function waitForCompleteResponse(messageElement) {
 
 function trackUserMessage(messageElement) {
   try {
+    // Don't track during warmup period (prevents tracking on page load/refresh)
+    if (isWarmingUp) {
+      console.log('🌍 Skipping user message tracking - warmup period active');
+      return;
+    }
+
     const text = messageElement.innerText || messageElement.textContent;
     if (text && text.trim().length > 0) {
       lastUserTokens = estimateTokens(text);
@@ -404,6 +431,9 @@ function observeChat() {
   lastProcessedConversationText = '';
   window.lastUserMessageTime = 0;
   console.log('🌍 Reset tracking state for new conversation');
+
+  // Start warmup period to prevent tracking existing messages
+  startWarmupPeriod();
 
   // Mark existing messages on initial load to prevent duplicates on refresh
   if (isInitialLoad) {
