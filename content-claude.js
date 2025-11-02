@@ -1,3 +1,4 @@
+// CONSIDER ROLLBACK OF RECENT CHANGES IF ISSUES ARISE
 // Content script for Claude tracking
 console.log('🌍 AI Carbon Tracker: Extension loaded on Claude!');
 console.log('🌍 Current URL:', window.location.href);
