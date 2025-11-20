@@ -174,7 +174,7 @@ async function showToast(data) {
   // Auto-dismiss after 3 seconds
   const dismissTimeout = setTimeout(() => {
     hideToast(toast);
-  }, 3000);
+  }, 9000);
   
   // Click to dismiss immediately
   toast.addEventListener('click', () => {
